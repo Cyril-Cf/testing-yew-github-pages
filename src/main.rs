@@ -1,44 +1,78 @@
 use yew::prelude::*;
 
-enum Msg {
-    AddOne,
-}
+mod components;
+mod models;
 
-struct Model {
-    value: i64,
-}
+use gloo_net::{http::Request, Error}; //add
+use models::user::Users; //add
 
-impl Component for Model {
-    type Message = Msg;
-    type Properties = ();
+use components::{card::Card, header::Header, loader::Loader, message::Message}; //add
 
-    fn create(_ctx: &Context<Self>) -> Self {
-        Self { value: 0 }
+#[function_component(App)]
+fn app() -> Html {
+    let users: UseStateHandle<Option<Users>> = use_state(|| None);
+    let error: UseStateHandle<Option<Error>> = use_state(|| None);
+
+    {
+        //create copies of states
+        let users = users.clone();
+        let error = error.clone();
+
+        use_effect_with_deps(
+            move |_| {
+                wasm_bindgen_futures::spawn_local(async move {
+                    let fetched_users = Request::get("https://dummyjson.com/users").send().await;
+                    match fetched_users {
+                        Ok(response) => {
+                            let json = response.json::<Users>().await;
+                            match json {
+                                Ok(json_resp) => {
+                                    users.set(Some(json_resp));
+                                }
+                                Err(e) => error.set(Some(e)),
+                            }
+                        }
+                        Err(e) => error.set(Some(e)),
+                    }
+                });
+                || ()
+            },
+            (),
+        );
     }
 
-    fn update(&mut self, _ctx: &Context<Self>, msg: Self::Message) -> bool {
-        match msg {
-            Msg::AddOne => {
-                self.value += 1;
-                // the value has changed so we need to
-                // re-render for it to appear on the page
-                true
+    let user_list_logic = match users.as_ref() {
+        Some(users) => users
+            .users
+            .iter()
+            .map(|user| {
+                html! {
+                  <Card user={user.clone() }/>
+                }
+            })
+            .collect(),
+        None => match error.as_ref() {
+            Some(_) => {
+                html! {
+                    <Message text={"Error getting list of users"} css_class={"text-danger"}/>
+                }
             }
-        }
-    }
+            None => {
+                html! {
+                  <Loader />
+                }
+            }
+        },
+    };
 
-    fn view(&self, ctx: &Context<Self>) -> Html {
-        // This gives us a component's "`Scope`" which allows us to send messages, etc to the component.
-        let link = ctx.link();
-        html! {
-            <div>
-                <button onclick={link.callback(|_| Msg::AddOne)}>{ "+1" }</button>
-                <p>{ self.value }</p>
-            </div>
-        }
+    html! {
+      <>
+        <Header />
+        {user_list_logic}
+      </>
     }
 }
 
 fn main() {
-    yew::start_app::<Model>();
+    yew::start_app::<App>();
 }
